@@ -7,7 +7,7 @@
     "team": "data-engineering"
   },
   "email_notifications": {
-    "on_failure": ["<SEU-EMAIL@dominio.com>"],
+    "on_failure": ["raulteles.data@gmail.com"],
     "on_success": [],
     "no_alert_for_skipped_runs": false
   },
@@ -24,8 +24,8 @@
       "task_key": "run_ingestion_pipeline",
       "description": "Executa o notebook de orquestração principal para todas as coleções do sample_mflix",
       "notebook_task": {
-        "notebook_path": "/Repos/<SEU-USER>/T3-DE-INGESTAO/notebooks/01_run_pipeline",
-        "source": "WORKSPACE"
+        "notebook_path": "notebooks/01_run_pipeline.py",
+        "source": "GIT"
       },
       "job_cluster_key": "ingestion_cluster",
       "retry_on_timeout": true,
@@ -40,8 +40,8 @@
         {"task_key": "run_ingestion_pipeline"}
       ],
       "notebook_task": {
-        "notebook_path": "/Repos/<SEU-USER>/T3-DE-INGESTAO/notebooks/02_validate_bronze",
-        "source": "WORKSPACE"
+        "notebook_path": "notebooks/02_validate_bronze.py",
+        "source": "GIT"
       },
       "job_cluster_key": "ingestion_cluster",
       "retry_on_timeout": false,
@@ -49,6 +49,11 @@
       "timeout_seconds": 600
     }
   ],
+  "git_source": {
+    "git_url": "https://github.com/EliakLM/ENG_DADOS_INGESTAO_DBMFLIX_T3.git",
+    "git_provider": "gitHub",
+    "git_branch": "main"
+  },
   "job_clusters": [
     {
       "job_cluster_key": "ingestion_cluster",

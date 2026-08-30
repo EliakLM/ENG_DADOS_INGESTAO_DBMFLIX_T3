@@ -37,9 +37,25 @@ from pathlib import Path
 import yaml
 from pyspark.sql import SparkSession
 
-# Adiciona /Workspace ao sys.path para importar src/
-# Ajuste o caminho conforme o repo clonado no Databricks Repos
-REPO_ROOT = "/Workspace/Repos/<SEU-USER>/T3-DE-INGESTAO"  # <-- ajuste para seu user
+# Localiza a raiz tanto em Git Folders interativos quanto em Jobs com Git source.
+current_path = Path.cwd().resolve()
+repo_candidates = (current_path, *current_path.parents)
+repo_root = next(
+    (
+        path
+        for path in repo_candidates
+        if (path / "config" / "pipeline_config.yaml").is_file()
+        and (path / "src" / "extractor.py").is_file()
+    ),
+    None,
+)
+if repo_root is None:
+    raise RuntimeError(
+        "Raiz do repositório não encontrada a partir do diretório atual: "
+        f"{current_path}"
+    )
+
+REPO_ROOT = str(repo_root)
 sys.path.insert(0, REPO_ROOT)
 
 from src.extractor import MongoExtractor
@@ -134,13 +150,7 @@ for col_cfg in collections_cfg:
         if qtd_lida == 0 and load_type == "incremental":
             logger.info("Nenhum dado novo desde a última watermark — encerrando coleção com sucesso.")
             status = "SUCCESS"
-            control.log_end(
-                run_id=run_id, collection=collection,
-                qtd_lida=0, qtd_gravada=0,
-                status=status, watermark_final=watermark_ini,
-                start_time=col_start, end_time=datetime.now(timezone.utc),
-                erro=None
-            )
+            watermark_final = watermark_ini
             pipeline_results.append({"collection": collection, "status": status, "qtd_lida": 0, "qtd_gravada": 0})
             continue
 
@@ -172,7 +182,7 @@ for col_cfg in collections_cfg:
 
         # --- Passo 5: Salva watermark (apenas incremental com dados) ---
         if load_type == "incremental" and qtd_lida > 0:
-            watermark_final = extractor.get_max_watermark(col_cfg, filter={})
+            watermark_final = extractor.get_max_watermark(col_cfg, doc_filter={})
             if watermark_final:
                 control.save_watermark(collection, watermark_final)
                 logger.info("Watermark atualizada: %s → %s", watermark_ini, watermark_final)

@@ -45,13 +45,10 @@ class MongoExtractor:
     config:
         Dictionary loaded from ``pipeline_config.yaml``.  Expected keys::
 
-            mongodb:
-              secret_scope: "<databricks-secret-scope>"
-              secret_key:   "<secret-key-holding-uri>"
-              database:     "<database-name>"
-
-            landing:
-              base_path:    "<dbfs-or-local-landing-zone-path>"
+            secret_scope: "<databricks-secret-scope>"
+            secret_key:   "<secret-key-holding-uri>"
+            database:     "<database-name>"
+            landing_path: "<dbfs-or-local-landing-zone-path>"
 
     dbutils:
         The Databricks ``dbutils`` object, passed in explicitly to keep the
@@ -61,12 +58,12 @@ class MongoExtractor:
     def __init__(self, config: dict, dbutils):
         """Initialise the extractor: resolve secrets and create MongoClient."""
         self.config = config
-        self.database_name: str = config["mongodb"]["database"]
+        self.database_name: str = config["database"]
 
         # Resolve the MongoDB Atlas URI from Databricks secret store at
         # runtime — never hard-code credentials in source files.
-        scope: str = config["mongodb"]["secret_scope"]
-        key: str = config["mongodb"]["secret_key"]
+        scope: str = config["secret_scope"]
+        key: str = config["secret_key"]
         mongo_uri: str = dbutils.secrets.get(scope=scope, key=key)
 
         # A single, long-lived MongoClient is created here and reused across
@@ -137,7 +134,12 @@ class MongoExtractor:
         # ----------------------------------------------------------------
         if load_type == "incremental" and watermark is not None and watermark_field:
             # Only fetch documents inserted/updated after the last watermark.
-            doc_filter: dict = {watermark_field: {"$gt": watermark}}
+            watermark_value = watermark
+            if collection_cfg.get("watermark_type") == "datetime" and isinstance(watermark, str):
+                watermark_value = datetime.datetime.fromisoformat(
+                    watermark.replace("Z", "+00:00")
+                )
+            doc_filter: dict = {watermark_field: {"$gt": watermark_value}}
             logger.info(
                 "[%s] Incremental load — filter: %s", collection_name, doc_filter
             )
@@ -150,8 +152,8 @@ class MongoExtractor:
         # ----------------------------------------------------------------
         # Resolve output path
         # ----------------------------------------------------------------
-        landing_base: str = self.config["landing"]["base_path"]
-        timestamp: str = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        landing_base: str = self.config["landing_path"]
+        timestamp: str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         output_dir = Path(landing_base) / collection_name
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f"{collection_name}_{run_id}_{timestamp}.jsonl"

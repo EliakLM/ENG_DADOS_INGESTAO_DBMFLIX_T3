@@ -12,6 +12,7 @@
       "name": "comments",
       "load_type": "incremental",
       "watermark_field": "date",
+      "watermark_type": "datetime",
       "projection": {},
       "batch_size": 5000,
       "notes": "date is a native ISODate — reliable for incremental load"

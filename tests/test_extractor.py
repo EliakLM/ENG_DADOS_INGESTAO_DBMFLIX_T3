@@ -3,6 +3,7 @@
 # Testes unitários de src/extractor.py
 # Responsável: Raul Teles
 # =============================================================================
+import datetime
 import json
 import os
 import sys
@@ -29,24 +30,23 @@ class TestMongoExtractor:
         return {
             "catalog": "mflix_catalog",
             "bronze_schema": "bronze",
-            "mongodb": {
-                "secret_scope": "conn-db",
-                "secret_key": "cnn-mongodb-sampleflix",
-                "database": "sample_mflix",
-            },
-            "landing": {
-                "base_path": landing_path,
-            },
+            "landing_path": landing_path,
             "checkpoint_base": f"{landing_path}/_checkpoints",
+            "secret_scope": "conn-db",
+            "secret_key": "cnn-mongodb-sampleflix",
+            "database": "sample_mflix",
             "max_retries": 1,
             "retry_base_delay": 0.01,
         }
 
-    def _make_collection_cfg(self, name="movies", load_type="full", watermark_field=None):
+    def _make_collection_cfg(
+        self, name="movies", load_type="full", watermark_field=None, watermark_type=None
+    ):
         return {
             "name": name,
             "load_type": load_type,
             "watermark_field": watermark_field,
+            "watermark_type": watermark_type,
             "projection": {"fullplot": 0},
             "batch_size": 100,
         }
@@ -162,7 +162,9 @@ class TestMongoExtractor:
         """Extração incremental deve passar filtro com $gt na watermark."""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self._make_config(tmpdir)
-            col_cfg = self._make_collection_cfg("comments", "incremental", "date")
+            col_cfg = self._make_collection_cfg(
+                "comments", "incremental", "date", "datetime"
+            )
             run_id = "test-run-004"
             watermark = "2024-01-01T00:00:00"
 
@@ -187,6 +189,7 @@ class TestMongoExtractor:
             filter_arg = find_call_kwargs[1].get("filter") or find_call_kwargs[0][0]
             assert "date" in filter_arg
             assert "$gt" in filter_arg["date"]
+            assert isinstance(filter_arg["date"]["$gt"], datetime.datetime)
 
     def test_close_closes_mongo_client(self):
         """close() deve encerrar o MongoClient."""
