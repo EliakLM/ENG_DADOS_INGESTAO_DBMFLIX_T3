@@ -1,0 +1,19 @@
+# Pipeline configuration — NO credentials here
+# Credentials must be stored in Databricks Secret Scope: conn-db
+
+catalog: mflix_catalog
+bronze_schema: bronze
+landing_path: /Volumes/mflix_catalog/landing/mflix
+checkpoint_base: /Volumes/mflix_catalog/landing/mflix/_checkpoints
+
+secret_scope: conn-db
+secret_key: cnn-mongodb-sampleflix
+database: sample_mflix
+
+# Quality threshold: max allowed divergence (%) between origin count and destination count
+# Executions exceeding this threshold are marked as PARTIAL
+quality_threshold_pct: 1.0
+
+# Max retries for MongoDB network operations
+max_retries: 3
+retry_base_delay: 2.0

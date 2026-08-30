@@ -1,0 +1,37 @@
+# Credenciais e secrets — NUNCA versionar
+*.env
+.env.*
+secrets.yaml
+secrets.json
+*_credentials*
+*_secret.yaml
+*_secret.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Databricks
+.databricks/
+.databricks-connect
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Checkpoints do Auto Loader (gerenciados pelo Databricks Volume)
+_checkpoints/

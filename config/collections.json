@@ -1,0 +1,52 @@
+{
+  "collections": [
+    {
+      "name": "movies",
+      "load_type": "incremental",
+      "watermark_field": "lastupdated",
+      "projection": {"fullplot": 0, "poster": 0},
+      "batch_size": 5000,
+      "notes": "lastupdated is a string field — lexicographic comparison is valid for YYYY-MM-DD HH:MM:SS format"
+    },
+    {
+      "name": "comments",
+      "load_type": "incremental",
+      "watermark_field": "date",
+      "projection": {},
+      "batch_size": 5000,
+      "notes": "date is a native ISODate — reliable for incremental load"
+    },
+    {
+      "name": "users",
+      "load_type": "full",
+      "watermark_field": null,
+      "projection": {"password": 0},
+      "batch_size": 1000,
+      "notes": "password hash excluded — no analytical value, security risk"
+    },
+    {
+      "name": "theaters",
+      "load_type": "full",
+      "watermark_field": null,
+      "projection": {},
+      "batch_size": 1000,
+      "notes": "GeoJSON nested field preserved as-is"
+    },
+    {
+      "name": "sessions",
+      "load_type": "full",
+      "watermark_field": null,
+      "projection": {"jwt": 0},
+      "batch_size": 100,
+      "notes": "JWT token excluded — active credential. Collection may be empty — pipeline handles count=0 explicitly"
+    },
+    {
+      "name": "embedded_movies",
+      "load_type": "full",
+      "watermark_field": null,
+      "projection": {"plot_embedding": 0},
+      "batch_size": 1000,
+      "notes": "plot_embedding excluded — 1536 floats x 8 bytes ~ 12KB/doc x 3500 docs = ~42MB of vectors with no use in Bronze"
+    }
+  ]
+}
