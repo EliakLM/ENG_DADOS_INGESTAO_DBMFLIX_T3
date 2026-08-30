@@ -1,0 +1,76 @@
+{
+  "name": "mflix_ingestion_pipeline",
+  "description": "Pipeline de ingestão sample_mflix → Bronze (Delta Lake). Executa diariamente às 06h UTC com retry automático e notificação de falha por e-mail.",
+  "tags": {
+    "project": "T3-DE-INGESTAO",
+    "layer": "bronze",
+    "team": "data-engineering"
+  },
+  "email_notifications": {
+    "on_failure": ["<SEU-EMAIL@dominio.com>"],
+    "on_success": [],
+    "no_alert_for_skipped_runs": false
+  },
+  "webhook_notifications": {},
+  "timeout_seconds": 3600,
+  "max_concurrent_runs": 1,
+  "schedule": {
+    "quartz_cron_expression": "0 0 6 * * ?",
+    "timezone_id": "UTC",
+    "pause_status": "UNPAUSED"
+  },
+  "tasks": [
+    {
+      "task_key": "run_ingestion_pipeline",
+      "description": "Executa o notebook de orquestração principal para todas as coleções do sample_mflix",
+      "notebook_task": {
+        "notebook_path": "/Repos/<SEU-USER>/T3-DE-INGESTAO/notebooks/01_run_pipeline",
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "ingestion_cluster",
+      "retry_on_timeout": true,
+      "max_retries": 2,
+      "min_retry_interval_millis": 60000,
+      "timeout_seconds": 3000
+    },
+    {
+      "task_key": "validate_bronze",
+      "description": "Executa validações de qualidade e observabilidade sobre a camada Bronze",
+      "depends_on": [
+        {"task_key": "run_ingestion_pipeline"}
+      ],
+      "notebook_task": {
+        "notebook_path": "/Repos/<SEU-USER>/T3-DE-INGESTAO/notebooks/02_validate_bronze",
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "ingestion_cluster",
+      "retry_on_timeout": false,
+      "max_retries": 1,
+      "timeout_seconds": 600
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "ingestion_cluster",
+      "new_cluster": {
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "Standard_DS3_v2",
+        "num_workers": 2,
+        "spark_conf": {
+          "spark.databricks.delta.preview.enabled": "true",
+          "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
+          "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+        },
+        "azure_attributes": {
+          "availability": "SPOT_WITH_FALLBACK_AZURE",
+          "first_on_demand": 1
+        },
+        "init_scripts": [],
+        "spark_env_vars": {
+          "PYSPARK_PYTHON": "/databricks/python3/bin/python3"
+        }
+      }
+    }
+  ],
+  "format": "MULTI_TASK"
+}
