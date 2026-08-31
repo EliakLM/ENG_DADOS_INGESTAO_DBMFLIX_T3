@@ -87,8 +87,8 @@ except Exception as e:
 
 # COMMAND ----------
 
-# DBTITLE 1, Step 4 — Testar conectividade com o MongoDB
-# %pip install pymongo
+# DBTITLE 1,Step 4 — Testar conectividade com o MongoDB
+%pip install pymongo
 
 from pymongo import MongoClient
 

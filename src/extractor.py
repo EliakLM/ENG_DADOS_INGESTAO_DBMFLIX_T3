@@ -1,7 +1,8 @@
-# Databricks notebook source
-# MAGIC %pip install pymongo
-# MAGIC dbutils.library.restartPython()
-
+# =============================================================================
+# src/extractor.py
+# Importado como módulo pelo notebook 01_run_pipeline.py.
+# O pymongo deve ser instalado via %pip install no notebook chamador.
+# =============================================================================
 """
 extractor.py
 ------------
@@ -45,10 +46,13 @@ class MongoExtractor:
     config:
         Dictionary loaded from ``pipeline_config.yaml``.  Expected keys::
 
-            secret_scope: "<databricks-secret-scope>"
-            secret_key:   "<secret-key-holding-uri>"
-            database:     "<database-name>"
-            landing_path: "<dbfs-or-local-landing-zone-path>"
+            mongodb:
+              secret_scope: "<databricks-secret-scope>"
+              secret_key:   "<secret-key-holding-uri>"
+              database:     "<database-name>"
+
+            landing:
+              base_path:    "<dbfs-or-local-landing-zone-path>"
 
     dbutils:
         The Databricks ``dbutils`` object, passed in explicitly to keep the
@@ -58,25 +62,25 @@ class MongoExtractor:
     def __init__(self, config: dict, dbutils):
         """Initialise the extractor: resolve secrets and create MongoClient."""
         self.config = config
+        self.dbutils = dbutils  # needed for dbutils.fs.mkdirs() on UC Volumes
+
+        # Chaves planas conforme pipeline_config.yaml
         self.database_name: str = config["database"]
 
-        # Resolve the MongoDB Atlas URI from Databricks secret store at
-        # runtime — never hard-code credentials in source files.
+        # Resolve the MongoDB Atlas URI from Databricks secret store at runtime.
         scope: str = config["secret_scope"]
         key: str = config["secret_key"]
         mongo_uri: str = dbutils.secrets.get(scope=scope, key=key)
 
-        # A single, long-lived MongoClient is created here and reused across
-        # all collection extractions within the same pipeline run.
+        # Single, long-lived MongoClient reused across all collection extractions.
         self.client = MongoClient(
             mongo_uri,
-            serverSelectionTimeoutMS=15_000,   # fail fast if cluster unreachable
-            socketTimeoutMS=300_000,           # allow slow cursors on large collections
+            serverSelectionTimeoutMS=15_000,
+            socketTimeoutMS=300_000,
             appName="databricks-mflix-ingestor",
         )
-        logger.info(
-            "MongoClient initialised — database: '%s'", self.database_name
-        )
+        logger.info("MongoClient initialised — database: '%s'", self.database_name)
+
 
     # ------------------------------------------------------------------
     # Public API
@@ -134,12 +138,7 @@ class MongoExtractor:
         # ----------------------------------------------------------------
         if load_type == "incremental" and watermark is not None and watermark_field:
             # Only fetch documents inserted/updated after the last watermark.
-            watermark_value = watermark
-            if collection_cfg.get("watermark_type") == "datetime" and isinstance(watermark, str):
-                watermark_value = datetime.datetime.fromisoformat(
-                    watermark.replace("Z", "+00:00")
-                )
-            doc_filter: dict = {watermark_field: {"$gt": watermark_value}}
+            doc_filter: dict = {watermark_field: {"$gt": watermark}}
             logger.info(
                 "[%s] Incremental load — filter: %s", collection_name, doc_filter
             )
@@ -152,11 +151,14 @@ class MongoExtractor:
         # ----------------------------------------------------------------
         # Resolve output path
         # ----------------------------------------------------------------
-        landing_base: str = self.config["landing_path"]
-        timestamp: str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        output_dir = Path(landing_base) / collection_name
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{collection_name}_{run_id}_{timestamp}.jsonl"
+        # Usa dbutils.fs.mkdirs() em vez de Path.mkdir() porque Databricks
+        # Unity Catalog Volumes não suportam os.mkdir() (Errno 95 EOPNOTSUPP).
+        # dbutils.fs.mkdirs() funciona tanto em DBFS quanto em UC Volumes.
+        landing_base: str = self.config["landing_path"]   # chave plana do YAML
+        timestamp: str = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        output_dir_str = f"{landing_base}/{collection_name}"
+        self.dbutils.fs.mkdirs(output_dir_str)            # cria se não existir
+        output_file = f"{output_dir_str}/{collection_name}_{run_id}_{timestamp}.jsonl"
 
         # ----------------------------------------------------------------
         # Execute query + stream to JSONL
@@ -177,7 +179,7 @@ class MongoExtractor:
                 "[%s] Writing JSONL → %s", collection_name, output_file
             )
 
-            with output_file.open("w", encoding="utf-8") as fh:
+            with open(output_file, "w", encoding="utf-8") as fh:
                 for doc in cursor:
                     # Serialise each document individually; encode_bson handles
                     # BSON-specific types that the standard json module rejects.

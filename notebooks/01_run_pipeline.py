@@ -18,16 +18,27 @@
 
 # COMMAND ----------
 
-# DBTITLE 1, Install dependencies
-# MAGIC %pip install pymongo pyyaml
+# DBTITLE 1,Install dependencies
+%pip install pymongo pyyaml
 
 # COMMAND ----------
 
-# MAGIC dbutils.library.restartPython()
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
-# DBTITLE 1, Imports
+# DBTITLE 1,⚙️ Configuração — ajuste antes de executar
+# ⚠️  Altere REPO_ROOT para o caminho real do seu Repo no Databricks.
+# Formato: /Workspace/Repos/<SEU-EMAIL-DATABRICKS>/<NOME-DO-REPO>
+# Exemplo: /Workspace/Repos/eliak@email.com/ENG_DADOS_INGESTAO_DBMFLIX_T3
+
+REPO_ROOT = "/Workspace/Repos/<SEU-USER>/ENG_DADOS_INGESTAO_DBMFLIX_T3"  # <-- ajuste aqui
+
+print(f"REPO_ROOT configurado: {REPO_ROOT}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Imports
 import json
 import logging
 import sys
@@ -37,25 +48,6 @@ from pathlib import Path
 import yaml
 from pyspark.sql import SparkSession
 
-# Localiza a raiz tanto em Git Folders interativos quanto em Jobs com Git source.
-current_path = Path.cwd().resolve()
-repo_candidates = (current_path, *current_path.parents)
-repo_root = next(
-    (
-        path
-        for path in repo_candidates
-        if (path / "config" / "pipeline_config.yaml").is_file()
-        and (path / "src" / "extractor.py").is_file()
-    ),
-    None,
-)
-if repo_root is None:
-    raise RuntimeError(
-        "Raiz do repositório não encontrada a partir do diretório atual: "
-        f"{current_path}"
-    )
-
-REPO_ROOT = str(repo_root)
 sys.path.insert(0, REPO_ROOT)
 
 from src.extractor import MongoExtractor
@@ -65,6 +57,7 @@ from src.utils import generate_run_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("pipeline.orchestrator")
+
 
 # COMMAND ----------
 
@@ -83,8 +76,51 @@ logger.info("Coleções configuradas: %s", [c["name"] for c in collections_cfg])
 
 # COMMAND ----------
 
-# DBTITLE 1, Initialize components
+# DBTITLE 1,Provisionar infraestrutura Unity Catalog (idempotente)
+# Cria catálogo, schemas e volume se ainda não existirem.
+# IF NOT EXISTS garante que re-execuções não causam erro.
+
+catalog       = config["catalog"]         # mflix_catalog
+bronze_schema = config["bronze_schema"]   # bronze
+landing_path  = config["landing_path"]    # /Volumes/mflix_catalog/landing/mflix
+
+# Extrai o schema de landing a partir do path do Volume:
+# /Volumes/<catalog>/<schema>/<volume> → schema = landing
+landing_schema = landing_path.split("/")[3]   # "landing"
+landing_volume = landing_path.split("/")[4]   # "mflix"
+
 spark = SparkSession.builder.getOrCreate()
+
+infra_steps = [
+    (f"CREATE CATALOG IF NOT EXISTS {catalog}",
+     f"Catálogo '{catalog}'"),
+
+    (f"CREATE SCHEMA IF NOT EXISTS {catalog}.{landing_schema}",
+     f"Schema '{catalog}.{landing_schema}'"),
+
+    (f"CREATE SCHEMA IF NOT EXISTS {catalog}.{bronze_schema}",
+     f"Schema '{catalog}.{bronze_schema}'"),
+
+    (f"CREATE VOLUME IF NOT EXISTS {catalog}.{landing_schema}.{landing_volume}",
+     f"Volume '{catalog}.{landing_schema}.{landing_volume}' → {landing_path}"),
+]
+
+print("=" * 60)
+print("  PROVISIONAMENTO DE INFRAESTRUTURA")
+print("=" * 60)
+for sql, descricao in infra_steps:
+    try:
+        spark.sql(sql)
+        print(f"  ✅ {descricao}")
+    except Exception as e:
+        # Erros de permissão são comuns em workspaces sem admin — avisa mas não para.
+        print(f"  ⚠️  {descricao} — {e}")
+print("=" * 60)
+
+# COMMAND ----------
+
+# DBTITLE 1,Initialize components
+# spark já foi criado na célula de provisionamento acima
 
 run_id = generate_run_id()
 run_start = datetime.now(timezone.utc)
@@ -150,7 +186,13 @@ for col_cfg in collections_cfg:
         if qtd_lida == 0 and load_type == "incremental":
             logger.info("Nenhum dado novo desde a última watermark — encerrando coleção com sucesso.")
             status = "SUCCESS"
-            watermark_final = watermark_ini
+            control.log_end(
+                run_id=run_id, collection=collection,
+                qtd_lida=0, qtd_gravada=0,
+                status=status, watermark_final=watermark_ini,
+                start_time=col_start, end_time=datetime.now(timezone.utc),
+                erro=None
+            )
             pipeline_results.append({"collection": collection, "status": status, "qtd_lida": 0, "qtd_gravada": 0})
             continue
 
